@@ -2,6 +2,7 @@
 
 library(lubridate)
 library(ggplot2)
+library(geosphere)
 
 tripsfile = 'data//Volkswagen Jetta trips - Sheet 1.csv'
 trips <- read.csv(tripsfile, stringsAsFactors = FALSE)
@@ -11,6 +12,7 @@ trips <- read.csv(tripsfile, stringsAsFactors = FALSE)
 tz = 'America/New_York'
 trips$Trip.Started.At <- mdy_hm(trips$Trip.Started.At, tz = tz)
 trips$Trip.Ended.At <- mdy_hm(trips$Trip.Ended.At, tz = tz)
+trips <- trips[order(trips$Trip.Started.At), ]
 trips$Fuel.Cost.USD <- as.numeric(sub('\\$', '', trips$Fuel.Cost.USD))
 
 # Calculate some useful values
@@ -59,4 +61,20 @@ weekly.stats <- merge(week.num,
                       weekly.stats,  
                       by = 'week.num',
                       all = TRUE)
+# Weekly miles
+ggplot(data = weekly.stats, aes(x = week.num, y = miles)) + 
+    geom_bar(stat = 'identity')
+
+# Use distances and times to identify missing trips
+trips$dist.gap <- NA
+trips$time.gap <- NA
+for (i in 1:(nrow(trips)-1)) {
+    trips$dist.gap[i] <- 
+        distHaversine(c(trips$Start.Location.Lon[i+1], 
+                        trips$Start.Location.Lat[i+1]), 
+                      c(trips$End.Location.Lon[i], 
+                        trips$End.Location.Lat[i]))
+    trips$time.gap[i] <- as.duration(trips$Trip.Started.At[i+1] - 
+                                     trips$Trip.Ended.At[i])/3600
+}
 
