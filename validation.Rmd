@@ -1,11 +1,17 @@
 ---
-title: "Validating Automatic Mileage & Cost Data"
+title: Validating Automatic Mileage & Cost Data
 author: "Michael Wimsatt"
 date: "February 21, 2015"
 output: html_document
+layout: post
+published: true
+tags: [R, mileage, automatic]
+comments: true
 ---
 
 # Validating Automatic data
+
+*Note: Code for this analysis available [on GitHub](https://github.com/wimsy/mileage_analysis/blob/master/validation.Rmd).*
 
 Last March I purchased [Automatic](http://www.automatic.com/), an adapter that plugs into my car's diagnostic port and syncs with an app on my iPhone to report and record data about my driving. Among other things, Automatic provides:
 
