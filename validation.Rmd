@@ -1,0 +1,268 @@
+---
+title: "Validating Automatic Mileage & Cost Data"
+author: "Michael Wimsatt"
+date: "February 21, 2015"
+output: html_document
+---
+
+# Validating Automatic data
+
+Last March I purchased [Automatic](http://www.automatic.com/), an adapter that plugs into my car's diagnostic port and syncs with an app on my iPhone to report and record data about my driving. Among other things, Automatic provides:
+
+- route, miles and time driven
+- gas consumed
+- estimated cost of gas consumed
+- gas-wasting events like hard braking and speeds over 70 mph
+
+During the first few months, I had trouble getting the adapter to kick in reliably when a trip started, and it still alerts me regularly that it hasn't connected to the smartphone app. Reliability has certainly improved, but I wanted to get an idea of accuracy -- is the cost and gas mileage being reported actually close to what I'm experiencing? To get some independent data, I started recording odometer readings, gallons and price at each fill-up in August.
+
+So... How well do the two datasets match up?
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+library(lubridate)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(zoo)
+library(knitr)
+library(scales)
+
+# Load trip data
+
+root.dir <- '~/Documents/Projects/mileage/'
+tripsfile = paste0(root.dir, 'data//raw_trips.csv')
+trips <- read.csv(tripsfile, stringsAsFactors = FALSE)
+
+# Note, I know I didn't leave the Easern time zone during this period 
+# with this car.
+tz = 'America/New_York'
+trips$Start.Time <- ymd_hm(trips$Start.Time, tz = tz)
+trips$End.Time <- ymd_hm(trips$End.Time, tz = tz)
+trips <- trips[order(trips$Start.Time), ]
+
+# Load mileage data
+
+mileagefile = paste0(root.dir, 'data//mileage.csv')
+mileage <- read.csv(mileagefile, stringsAsFactors = FALSE)
+
+# Note, I know I didn't leave the Easern time zone during this period 
+# with this car.
+tz = 'America/New_York'
+mileage$Timestamp <- mdy_hms(mileage$Timestamp, tz = tz)
+mileage <- mileage[order(mileage$Timestamp), ]
+mileage <- na.omit(mileage)
+mileage$diff.miles[2:nrow(mileage)] <- diff(mileage$Miles)
+
+tdf <- trips %>%
+    select(Start.Time, 
+           Distance..mi., 
+           Fuel.Cost..USD., 
+           Fuel.Volume..gal.) %>%
+    group_by(month=paste(as.character(year(Start.Time)), 
+                         sprintf('%02d', month(Start.Time)), 
+                         sep='-')) %>%
+    summarize(miles=sum(Distance..mi.), 
+              cost=sum(Fuel.Cost..USD.), 
+              gallons=sum(Fuel.Volume..gal.), 
+              mpg=miles/gallons, 
+              cpg=cost/gallons, 
+              cpm=cost/miles) %>% 
+    mutate(datasource='Automatic')
+
+mdf <- mileage %>%
+    group_by(month=paste(as.character(year(Timestamp)), 
+                         sprintf('%02d', month(Timestamp)), 
+                         sep='-')) %>%
+    summarize(miles=sum(diff.miles), 
+              gallons=sum(Gallons), 
+              cost=sum(Price), 
+              mpg=miles/gallons, 
+              cpg=cost/gallons, 
+              cpm=cost/miles) %>%
+    mutate(datasource='Mileage records')
+```
+
+## The data
+
+I have two datasets. One downloaded from the Automatic Dashboard. Each row is a trip. As mentioned above, there are missing trips in this dataset. 
+
+```{r trips, echo=FALSE}
+# Dropping a few columns for, you know, privacy
+trips %>% 
+    select(-contains('Location'), -Path) %>%
+    str()
+```
+
+The second is a set of data recorded at each fill-up. 
+
+```{r mileage, echo=FALSE}
+tail(mileage)
+```
+
+## Overall accuracy
+
+Generally, Automatic appears to be accurate when it actually registers a trip. 
+
+```{r overall, echo=FALSE}
+# Monthly comparison 
+compdf <- rbind(mdf, tdf) %>%
+    arrange(month) %>%
+    na.omit() %>%
+    filter(month>'2014-08')
+
+# Rolled up comparison
+rollupdf <- compdf %>%
+    group_by(datasource) %>%
+    summarize(miles=sum(miles), 
+              gallons=sum(gallons), 
+              cost=sum(cost), 
+              mpg=miles/gallons, 
+              cpg=cost/gallons, 
+              cpm=cost/miles) 
+```
+
+| Measure           | Automatic Data | Mileage Data |
+| ------------------|---------------:| ------------:|
+| Miles driven      | `r format(rollupdf$miles[1], digits=0, big.mark=',')` | `r format(rollupdf$miles[2], digits=0, big.mark=',')` |
+| Gallons consumed  | `r format(rollupdf$gallons[1], digits=0)` | `r format(rollupdf$gallons[2], digits=0)` |
+| Fuel cost | `r sprintf('$ %s', format(rollupdf$cost[1], digits=0, big.mark=','))` | `r sprintf('$ %s', format(rollupdf$cost[2], digits=0, big.mark=','))` |
+| Miles per gallon | `r format(rollupdf$mpg[1], digits=3)` | `r format(rollupdf$mpg[2], digits=3)` |
+| Price per gallon | `r sprintf('$ %s', format(rollupdf$cpg[1], digits=4))` | `r sprintf('$ %s', format(rollupdf$cpg[2], digits=4))` |
+
+Here you can see that, while total mileage and fuel consumption are off, the price per gallon and gas mileage are pretty close to actuals.
+
+## Monthly analysis
+
+Even over time, the Automatic rate data seems accurate. The total monthly mileage tracks well between actuals and Automatic's calculations. I suspect the major month-to-month differences are a result of missed trips and timing mismatches between the trips data and my fill-up mileage data.
+
+```{r comparison, echo=FALSE}
+compdf %>%
+    ggplot(aes(x=month, y=miles, group=datasource)) + 
+    geom_line(aes(color=datasource)) + 
+    scale_y_continuous(limits=c(0,2500)) + 
+    xlab('Month') + 
+    ylab('Total miles') + 
+    labs(color='Data source')
+```
+
+Rate data (mpg and cost per gallon) show even better accuracy.
+
+```{r mpg, echo=FALSE}
+compdf %>%
+    ggplot(aes(x=month, y=mpg, group=datasource)) + 
+    geom_line(aes(color=datasource)) + 
+    scale_y_continuous(limits=c(24.5, 29)) + 
+    labs(color='Data source') +     
+    ylab('Miles per gallon') + 
+    xlab('Month')
+```
+
+```{r cpg, echo=FALSE}
+compdf %>%
+    ggplot(aes(x=month, y=cpg, group=datasource)) + 
+    geom_line(aes(color=datasource)) + 
+    labs(color='Data source') + 
+    scale_y_continuous(limits=c(2.0, 4.0), labels=dollar) + 
+    ylab('Price per gallon') + 
+    xlab('Month')
+
+```
+
+It's a little disappointing to see the once-plummeting gasoline price level off in February, but it had to end eventually...
+
+## Getting a little more precise
+
+Since trips and fill-ups don't line up perfectly with months, I'd like to compare the trips data directly with each tank of gas. This also gives me a chance to play with time intervals in the [lubridate](http://cran.r-project.org/web/packages/lubridate/index.html) package.
+
+```{r tanks, echo=FALSE}
+tank.interval <- data.frame(new_interval(
+    mileage$Timestamp[1:nrow(mileage)-1], 
+    mileage$Timestamp[2:nrow(mileage)]))
+
+tankdf <- mileage[2:nrow(mileage),] %>%
+    select(Gallons, 
+           Price, 
+           diff.miles) %>% 
+    bind_cols(tank.interval)
+tankdf <- tankdf %>% 
+    mutate(tanknum = rownames(tankdf)) %>%
+    rename(tank.interval = 
+               new_interval.mileage.Timestamp.1.nrow.mileage....1...mileage.Timestamp.2.nrow.mileage..., 
+           gallons = Gallons, 
+           cost = Price, 
+           miles = diff.miles) %>% 
+    mutate(mpg = miles/gallons, 
+           cpg = cost/gallons, 
+           datasource = 'Mileage records')
+#print(tank.interval)
+tankdf$tanknum <- as.numeric(tankdf$tanknum)
+
+#trips$trip.interval <- new_interval(trips$Start.Time, trips$End.Time)
+
+getTankId <- function(check.time) {
+    tankid <- tankdf$tanknum[check.time %within% tankdf$tank.interval]
+    if (length(tankid) == 0) tankid <- NA
+    tankid
+}
+
+tripdf <- trips %>%
+    select(start.time=Start.Time, 
+           end.time=End.Time, 
+           miles=Distance..mi., 
+           duration=Duration..min., 
+           cost=Fuel.Cost..USD., 
+           gallons=Fuel.Volume..gal.) 
+tripdf$tank <- unlist(mapply(getTankId, tripdf$end.time))
+tripdf <- tripdf %>% 
+    na.omit() %>% 
+    group_by(tank) %>% 
+    summarize(miles=sum(miles), 
+              duration=sum(duration), 
+              cost=sum(cost), 
+              gallons=sum(gallons)) %>% 
+    arrange(tank) %>% 
+    mutate(mpg = miles/gallons, 
+           cpg = cost/gallons, 
+           datasource='Automatic')
+```
+
+```{r tankdf, echo=FALSE}
+tankdf <- tankdf %>% 
+    rename(tank = tanknum) 
+tankdf <- merge(tripdf, tankdf, all=T)
+tankdf$tank.interval[tankdf$datasource=='Automatic'] <- 
+    tankdf$tank.interval[tankdf$datasource=='Mileage records']
+
+tankdf %>% 
+    ggplot(aes(x=int_end(tank.interval), y=mpg, group=datasource)) + 
+    geom_line(aes(color=datasource)) + 
+    labs(color='Data source') + 
+    ylab('Miles per gallon') + 
+    xlab('')
+```
+
+*The big swing you see at the end of November in my mileage records is the result of stopping at a gas station that had some technical problems and I was able to fill my tank only partially. Since accurate estimates of fuel consumption require me to fill the tank each time, this skewed the numbers for this fill-up and the following one.*
+
+```{r cpg2, echo=FALSE}
+tankdf %>% 
+    ggplot(aes(x=int_end(tank.interval), y=cpg, group=datasource)) + 
+    geom_line(aes(color=datasource)) +
+    labs(color='Data source') + 
+    scale_y_continuous(limits=c(2.1, 4.1), labels=dollar) + 
+    ylab('Price per gallon') + 
+    xlab('')
+```
+
+```{r miles, echo=FALSE}
+tankdf %>% 
+    ggplot(aes(x=int_end(tank.interval), y=miles, group=datasource)) + 
+    geom_line(aes(color=datasource)) +
+    labs(color='Data source') + 
+    scale_y_continuous(limits=c(0, 400)) +
+    ylab('Miles driven') + 
+    xlab('')
+```
+
+## Conclusion
+
+As you can see in the graphs above, cost per gallon, gas mileage and even total miles driven tracked pretty well with my manually recorded data -- the exceptions coming mostly when AUtomatic missed trips. There are probably other systematic sources of error, too. For instance, I usually pay a slightly higher credit price at the pump, and Automatic might be assuming the lower cash price.

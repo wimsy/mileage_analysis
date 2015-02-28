@@ -1,36 +1,40 @@
 # Remove some location info and create a basic data set for publication
 
 library(lubridate)
+library(dplyr)
 
-tripsfile = 'data//Volkswagen Jetta trips - Sheet 1.csv'
+tripsfile = 'data//raw_trips.csv'
 trips <- read.csv(tripsfile, stringsAsFactors = FALSE)
 
 # Note, I know I didn't leave the Easern time zone during this period 
 # with this car.
 tz = 'America/New_York'
-trips$Trip.Started.At <- mdy_hm(trips$Trip.Started.At, tz = tz)
-trips$Trip.Ended.At <- mdy_hm(trips$Trip.Ended.At, tz = tz)
-trips <- trips[order(trips$Trip.Started.At), ]
-trips$Fuel.Cost.USD <- as.numeric(sub('\\$', '', trips$Fuel.Cost.USD))
+trips$Start.Time <- ymd_hm(trips$Start.Time, tz = tz)
+trips$End.Time <- ymd_hm(trips$End.Time, tz = tz)
+trips <- trips[order(trips$Start.Time), ]
+# trips$Fuel.Cost..USD. <- as.numeric(sub('\\$', '', trips$Fuel.Cost..USD.))
 
 # Calculate some useful values
-trips$trip.minutes <- as.integer(trips$Trip.Ended.At - trips$Trip.Started.At)/60
+# trips$trip.minutes <- as.integer(trips$End.Time - trips$Start.Time)/60
 # Zero-minute trips rounded up to one minute because Infinity
-trips$avg.mph <- trips$Trip.Distance.Miles / max(1, trips$trip.minutes) * 60.0
-trips$calc.gallons <- trips$Trip.Distance.Miles / trips$Average.MPG
-trips$cost.per.gallon <- trips$Fuel.Cost.USD / trips$calc.gallons
+trips$avg.mph <- trips$Distance..mi. / trips$Duration..min. * 60.0
+# trips$calc.gallons <- trips$Distance..mi. / trips$Average.MPG
+trips$cost.per.gallon <- trips$Fuel.Cost..USD. / trips$Fuel.Volume..gal.
 
-trips <- subset(trips, select = -c(Vehicle.Name, 
-                                   Duration.Over.70.MPH, 
-                                   Duration.Over.75.MPH,
-                                   Duration.Over.80.MPH,
-                                   Trip.Path.Image.Map.URL,
+trips <- subset(trips, select = -c(Vehicle, 
+                                   Duration.Over.70.mph..secs., 
+                                   Duration.Over.75.mph..secs.,
+                                   Duration.Over.80.mph..secs.,
                                    Start.Location.Lon,
                                    Start.Location.Lat,
-                                   Start.Location.Map.URL,
                                    End.Location.Lon,
-                                   End.Location.Lat,
-                                   End.Location.Map.URL
+                                   End.Location.Lat, 
+                                   Start.Location.Accuracy..meters., 
+                                   End.Location.Accuracy..meters., 
+                                   Path
 ))
 
 write.csv(trips, file = 'output/trips.csv')
+
+
+    

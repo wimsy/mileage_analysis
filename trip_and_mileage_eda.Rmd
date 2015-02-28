@@ -1,0 +1,33 @@
+---
+title: "Trips and Mileage EDA"
+author: "Michael Wimsatt"
+date: "January 4, 2015"
+output: html_document
+---
+
+```{r echo=FALSE}
+library(knitr)
+```
+
+Here I am comparing data from manaully recorded mileage (collected at the gas pump) and automatically collected trip data from the [Automatic app](http://automatic.com) I use with my car. 
+
+### Download and clean data
+
+*Information about the source data.*
+
+Load and clean trip data:
+
+```{r}
+source('./trip_data_clean.R')
+```
+
+Load and clean mileage data:
+
+```{r}
+source('./mileage_data_clean.R')
+```
+
+
+### EDA
+
+
