@@ -1,0 +1,53 @@
+---
+title: "Commute Analysis"
+author: "Michael Wimsatt"
+date: "May 23, 2015"
+output: html_document
+---
+
+# Commute Analysis using data from Automatic
+
+This is my second post about the data I'm getting from the 
+[Automatic](https://www.automatic.com/) device and app I use daily with my car. 
+In the 
+[last post](http://www.quantary.net/2015/02/21/validating-automatic-mileage-data.html) 
+I tried to assess the accuracy of the mileage and fuel usage data Automatic was 
+reporting. It turns out it's pretty accurate. Any discrepancies appear to come 
+when the app is unable to connect to the device for some reason. That was common 
+early on, but less so now. 
+
+In this post, I'm taking a look at my daily commute - about 43 miles depending 
+on route. I'm looking at travel times based on time of day and doing a little 
+to describe the various routes I take. 
+
+## About my commute
+
+My 43-mile commute is sort of a "reverse" commute. I live in Queens, NY, and 
+work in Suffolk County, Long Island. Since I'm commuting out of the city, I face
+less traffic than people going in the opposite direction, but I still deal with 
+significant traffic at certain spots. I tend to hit more traffic coming home, 
+but it drops off significantly later in the evening so - on average - my 
+morning and evening commutes are both around one hour.
+
+Due to timezones and managing a global team, my work hours are shifted a bit 
+(although some of this data derives from before I made the change) so my 
+typical day looks like this:
+
+* 8 - 9 AM: Check email and join the occasional conference call at home
+* 9 - 10 AM: Drive to the office
+* 10 - 6:30: In-office workday
+* 6:30 - 7:30: Drive home
+
+As you'll see, this works out nicely with commute times too.
+
+## Data and tools
+
+The standard data dump from the Automatic dashboard is a CSV file with one row 
+per trip. Information about each trip includes beginning and ending times and 
+locations, the route traveled coded as a 
+[polyline](https://developers.google.com/maps/documentation/utilities/polylinealgorithm), 
+and some data related to gas mileage. For this, I focused on times, locations 
+and routes. 
+
+Statistical analysis was conducted in RStudio with lubridate, plyr, dplyr, 
+ggplot2, fields and qcc libraries. I did the path analysis, including 

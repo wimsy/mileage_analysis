@@ -4,3 +4,8 @@ data/
 output/
 *.html
 *.md
+Commute route analysis.xmind
+Testing.ipynb
+paths.csv
+todo.txt
+polytoll.py
