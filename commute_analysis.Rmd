@@ -1,11 +1,15 @@
 ---
-title: "Commute Analysis"
+title: "What's My Rush Hour?""
 author: "Michael Wimsatt"
-date: "May 23, 2015"
+date: "May 26, 2015"
 output: html_document
+layout: post
+published: true
+tags: [R, mileage, automatic, Python]
+comments: yes
 ---
 
-# Commute Analysis using data from Automatic
+# What's My Rush Hour?
 
 This is my second post about the data I'm getting from the 
 [Automatic](https://www.automatic.com/) device and app I use daily with my car. 
@@ -16,9 +20,9 @@ reporting. It turns out it's pretty accurate. Any discrepancies appear to come
 when the app is unable to connect to the device for some reason. That was common 
 early on, but less so now. 
 
-In this post, I'm taking a look at my daily commute - about 43 miles depending 
-on route. I'm looking at travel times based on time of day and doing a little 
-to describe the various routes I take. 
+In this post, I'm trying to answer one very specific question: What are my rush 
+hours? How early do I need to leave to "beat" rush 
+hour? Within rush hour, are some times better than others?
 
 ## About my commute
 
@@ -29,18 +33,304 @@ significant traffic at certain spots. I tend to hit more traffic coming home,
 but it drops off significantly later in the evening so - on average - my 
 morning and evening commutes are both around one hour.
 
-Due to timezones and managing a global team, my work hours are shifted a bit 
-(although some of this data derives from before I made the change) so my 
-typical day looks like this:
+On a typical day I arrive around 10AM and leave at 6:30 or 7:00.
 
-* 8 - 9 AM: Check email and join the occasional conference call at home
-* 9 - 10 AM: Drive to the office
-* 10 - 6:30: In-office workday
-* 6:30 - 7:30: Drive home
+## Commute times and rush hour
 
-As you'll see, this works out nicely with commute times too.
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(lubridate)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(fields)
+library(qcc)
 
-## Data and tools
+trips <- read.csv('data//automatic-trips-2015-04-02.csv', stringsAsFactors=F)
+
+# Note, I know I didn't leave the Easern time zone during this period 
+# with this car.
+tz = 'America/New_York'
+trips$Start.Time <- ymd_hm(trips$Start.Time, tz = tz)
+trips$End.Time <- ymd_hm(trips$End.Time, tz = tz)
+trips <- trips[order(trips$Start.Time), ]
+
+home.lon.lat <- data.frame(-73.923640, 40.762608)
+office.lon.lat <- data.frame(-73.265673, 40.766484)
+start.matrix <- trips %>% select(Start.Location.Lon, Start.Location.Lat)
+end.matrix <- trips %>% select(End.Location.Lon, End.Location.Lat)
+start.home.dist <- rdist.earth(start.matrix, home.lon.lat)
+start.office.dist <- rdist.earth(start.matrix, office.lon.lat)
+end.home.dist <- rdist.earth(end.matrix, home.lon.lat)
+end.office.dist <- rdist.earth(end.matrix, office.lon.lat)
+
+trips$commute <- "none"
+trips$commute[start.home.dist < 1.0 & end.office.dist < 1.0] <- 'AM'
+trips$commute[start.office.dist < 1.0 & end.home.dist < 1.0] <- 'PM'
+trips$commute <- as.factor(trips$commute)
+
+df <- trips %>% select(Start.Time, 
+                       End.Time, 
+                       Distance..mi., 
+                       Duration..min., 
+                       Average.MPG, 
+                       commute) %>%
+    filter(commute == 'AM' | commute == 'PM')
+
+```
+
+The first thing I wanted to see was whether my impression that evening commutes 
+are generally longer and less predictable is correct. This distribution of 
+commute durations by morning and evening confirms that. As you can see, the 
+evening commmute has a much higher density above 60 minutes, extending frequently
+above 80. 
+
+```{r echo=FALSE, fig.width=5, fig.height=4}
+ggplot(df, aes(Duration..min., color=commute)) + 
+    geom_density() + 
+    ggtitle('Commute duration distribution\nmorning and evening') + 
+    scale_x_continuous('Duration (minutes)') + 
+    scale_y_continuous('Density')
+```
+
+So, what is my rush hour? Well, first I'll define rush hour for me. I'll call it 
+the **period of time during which the expected time is greater than 60 
+minutes**. If you look at the plot of durations below against departure time for
+morning and evening commutes, you can see a regression curve with confidence 
+regions. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=4, fig.height=4}
+
+# Morning and evening commute time smoothed
+df %>% 
+    filter(commute == 'AM') %>% 
+    ggplot(aes(x=hour(Start.Time) + minute(Start.Time)/60, 
+               y=Duration..min.)) + 
+    geom_point(size=1) + 
+    ggtitle('Morning Commute') + 
+    geom_smooth() + 
+    scale_x_continuous("start time", limits=c(5,11)) +
+    scale_y_continuous("duration (min)", limits=c(40,110))
+
+df %>% 
+    filter(commute == 'PM') %>% 
+    ggplot(aes(x=hour(Start.Time) + minute(Start.Time)/60, 
+               y=Duration..min.)) + 
+    geom_point(size=1) + 
+    ggtitle('Evening Commute') + 
+    geom_smooth() +
+    scale_x_continuous("start time", limits=c(15,21)) +
+    scale_y_continuous("duration (min)", limits=c(40,110))
+```
+
+From this, my conclusion is that morning rush hour starts for me somewhere 
+between (extrapolating) 6:30 AM and 7:30 AM and ends between 8:30 and a little 
+after 9:00. Similarly my evening rush hour begins between 2:30 (!!!) and 3:30 
+and lasts until somwehere between 6:30 and 7:30. It turns out that the common 
+wisdom around my office that you need to leave before 2 if you're going to New 
+Jersey is (roughly) true!
+
+## A little data cleaning
+
+In an effort to tighten up my estimates a bit, I'd like to focus on "normal" 
+commutes. For each trip, I also have path information, and my commutes aren't 
+always direct. For example, sometimes I drop my partner off at work or pick her 
+up on the way home. 
+
+I decided to limit the analysis to commute paths that followed one of the top 
+three routes for each direction. The top 3 routes represent 83% and 64% of trips 
+for the morning and evening commutes, respectively. 
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+# Import results from path analysis
+gate_results <- read.csv('gate_results.csv', stringsAsFactors=T)
+gatedefs <- read.csv('gates.csv', stringsAsFactors = F)
+gatedefs$label <- LETTERS[1:nrow(gatedefs)]
+gate_results$Gate.List <- as.factor(gate_results$Gate.List)
+gate_results$Start.Time <- ymd_hms(gate_results$Start.Time, tz = tz)
+commutedf <- merge(trips, gate_results, by='Start.Time') %>% 
+    select(start.time = Start.Time, 
+           end.time = End.Time, 
+           distance = Distance..mi., 
+           duration = Duration..min., 
+           start.lat = Start.Location.Lat, 
+           start.lon = Start.Location.Lon, 
+           end.lat = End.Location.Lat, 
+           end.lon = End.Location.Lon, 
+           path = Path, 
+           commute = commute.x, 
+           gates = Gate.List)
+
+# Identify top 3 routes in each direction
+route.freq.AM <- 
+    data.frame(table(gate_results$Gate.List[gate_results$commute == 'AM'])) %>%
+    arrange(-Freq) %>%
+    rename(route = Var1, freq = Freq)
+route.freq.PM <- 
+    data.frame(table(gate_results$Gate.List[gate_results$commute == 'PM'])) %>%
+    arrange(-Freq) %>%
+    rename(route = Var1, freq = Freq)
+route.AM.top3 <- route.freq.AM$route[1:3]
+route.PM.top3 <- route.freq.PM$route[1:3]
+
+# Filter commmutedf to just the top 3 in each direction
+top3 <- commutedf %>% 
+    filter(commute == 'AM' & gates %in% route.AM.top3 | 
+           commute == 'PM' & gates %in% route.PM.top3) %>% 
+    droplevels()
+
+# Create friendly labels for the top3 paths
+top3$gates <-revalue(top3$gates, 
+        c("GCP2,CIP1,LIE2,BQE2,LIE1,LIE4" = "CIP-LIE", 
+          "GCP2,GCP1,LIE2,BQE2,LIE1,LIE6,LIE4,LIE5" = "All LIE", 
+          "GCP2,GCP1,NSP3,NSP2,BQE2,LIE1" = "GCP-NSP and LIE to Sag", 
+          "GCP2,NSP1,CIP1,LIE2,BQE2,LIE4" = "NSP to 37A then LIE-CIP"))
+
+
+```
+
+Here are the morning and evening commute profiles for just the top three routes 
+in each direction.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=4, fig.height=4}
+
+# Morning and evening commute time smoothed
+top3 %>% 
+    filter(commute == 'AM') %>% 
+    ggplot(aes(x=hour(start.time) + minute(start.time)/60, 
+               y=duration)) + 
+    geom_point(size=1) + 
+    ggtitle('Morning Commute') + 
+    geom_smooth() + 
+    scale_x_continuous("start time", limits=c(5,11)) +
+    scale_y_continuous("duration (min)", limits=c(40,110))
+
+top3 %>% 
+    filter(commute == 'PM') %>% 
+    ggplot(aes(x=hour(start.time) + minute(start.time)/60, 
+               y=duration)) + 
+    geom_point(size=1) + 
+    ggtitle('Evening Commute') + 
+    geom_smooth() +
+    scale_x_continuous("start time", limits=c(15,21)) +
+    scale_y_continuous("duration (min)", limits=c(40,110))
+```
+
+With this cleaner data set, you can see that the rush hour windows are 
+reduced. Summarized...
+
+| Commute | Start          | End            |
+| ------- | -------------- | -------------- |
+| morning | 6:40 - 7:20 AM | 8:40 - 9:00 AM |
+| evening | 2:50 - 3:30 PM | 6:10 - 6:40 PM |
+
+### A note about routes
+
+I filtered my analysis to four routes that comprise the top three routes in each
+direction. 
+
+```{r echo=FALSE}
+table(top3$gates, top3$commute)
+```
+
+```{r echo=FALSE}
+# map_path <- function(path, size, weight, color) {
+#     enc <- path
+#     base_url <- 'https://maps.googleapis.com/maps/api/staticmap?'
+#     map_url <- URLencode(paste(base_url, 
+#                               'size=', 
+#                               toString(size), 
+#                               'x', 
+#                               toString(floor(size/5)),
+#                               '&maptype=terrain', 
+#                               '&path=weight:', 
+#                               toString(weight), 
+#                               '|color:', 
+#                               color, 
+#                               '|enc:', 
+#                               enc, 
+#                               sep = ""))
+#     return(map_url)
+# }
+# 
+# size = 700
+# weight = 5
+# path.color = 'red'
+# 
+# examples <- top3 %>% 
+#     slice(c(2,5,25,10)) %>% 
+#     select(distance, path, gates) 
+```
+
+**CIP-LIE - 43.0 miles**
+
+![CIP-LIE map](/Users/mwimsatt/Documents/Projects/mileage/images/map0002.png)
+
+**All LIE - 41.8 miles**
+
+![All LIE map](/Users/mwimsatt/Documents/Projects/mileage/images/map0005.png)
+
+**GCP-NSP and LIE to Sag - 44.8 miles**
+
+![GCP-NSP and LIE to Sag map](/Users/mwimsatt/Documents/Projects/mileage/images/map0025.png)
+
+**NSP to 37A then LIE-CIP - 44.8 miles**
+
+![NSP to 37A then LIE-CIP map](/Users/mwimsatt/Documents/Projects/mileage/images/map0010.png)
+
+I use the navigation app [Waze](https://www.waze.com/) on all my trips, and 
+usually follow its route recommendations based on traffic and other incidents. 
+So, my route is theoretically "optimized" for the shortest duration. As a 
+result, a pattern emerges:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=6, fig.height=4}
+top3 %>% 
+    filter(commute=='AM') %>%
+    ggplot(aes(x=hour(start.time) + minute(start.time)/60, 
+               fill=gates)) + 
+    geom_histogram(binwidth=0.5,position='dodge') + 
+    ggtitle('Morning Commute') + 
+    scale_x_continuous("start time", breaks=6:11)
+
+top3 %>% 
+    filter(commute=='PM') %>%
+    ggplot(aes(x=hour(start.time) + minute(start.time)/60, 
+               fill=gates)) + 
+    geom_histogram(binwidth=0.5,position='dodge') + 
+    ggtitle('Evening Commute') + 
+    scale_x_continuous("start time", breaks=13:22)
+
+```
+
+Here you can see that my primary route included the Long Island Expressway (LIE)
+and the Cross Island Parkway (CIP) in both directions. Second to that, came the
+most direct route (all on the LIE) - typically outside of rush hour. 
+
+Finally 
+there were the tertiary routes, which both involved the Northern State Parkway 
+(NSP; Queens in the morning and Suffolk in the 
+evening). In the morning commute, this route seemed to come into play 
+at the end of rush hour. In the evening, it looks like more of a toss up
+with the primary route. I can confirm that when I would look at route options in 
+Waze the times were often within a couple of minutes of each other.
+
+## Conclusion
+
+My commute is pretty predictable in the morning and the rush hours make sense. 
+In the evening, rush hour starts earlier than I would have guessed - 
+and trying to get out a little before 5:00 to "beat traffic" is the worst thing 
+I can do. Rush hour is longer in the evening (no surprise), but ends a bit 
+earlier than I would have guessed.
+
+Also, the times involved here are interesting. While it *feels* like I regularly 
+sit on the highway for close to two hours in my evening commute, the difference 
+between peak rush hour and cruising is about 20 minutes, on average. Of course
+the distribution is wide, and there are definitely some painful, painful 
+exceptions. 
+
+Commuting sucks. Thanks for nothin' Robert Moses. 
+
+### Data and tools
 
 The standard data dump from the Automatic dashboard is a CSV file with one row 
 per trip. Information about each trip includes beginning and ending times and 
@@ -50,4 +340,9 @@ and some data related to gas mileage. For this, I focused on times, locations
 and routes. 
 
 Statistical analysis was conducted in RStudio with lubridate, plyr, dplyr, 
-ggplot2, fields and qcc libraries. I did the path analysis, including 
+ggplot2, fields and qcc libraries. I did the path analysis in an iPython 
+notebook using a Python script from 
+[signed0](https://gist.github.com/signed0/2031157). 
+The code and related files can be found 
+[on GitHub](https://github.com/wimsy/mileage_analysis). 
+
