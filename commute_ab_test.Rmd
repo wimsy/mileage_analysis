@@ -1,0 +1,122 @@
+---
+title: "Commute AB Test"
+author: "Michael Wimsatt"
+date: "July 4, 2015"
+output: html_document
+layout: post
+published: true
+tags: [R, experiment, commute, map, leaflet]
+comments: yes
+---
+
+# Is the light worth the time?
+
+My evening commute is stressful enough (around an hour, with a fair share of traffic). But the most stressful part comes in the first five minutes - where I need to turn left into a heavily used two-way street. If you're a driver you probably know what i mean. Never fun. Every day? A pain.
+
+Of course, there's a solution to this dilemma: a traffic light. Only one block away is a convenient traffic light where I can leisurely wait my turn and enter traffic without peeling out or raising my heart rate. The problem is that I have to take a little roundabout route to get there. And I just don't know if it's worth the extra time and effort.
+
+```{r echo=FALSE, fig.width=3, fig.height=3}
+library(leaflet)
+
+road.signs <- data.frame(lng = c(-73.274525, -73.275758), 
+                         lat = c(40.772942, 40.772796),  
+                         label = c('stop sign', 'traffic light'))
+
+road.icons <- icons(
+    iconUrl = ifelse(road.signs$label == 'stop sign', 
+                     "images/noun_51713_cc.svg", 
+                     "images/noun_53685_cc.svg"),
+    iconWidth = 15, iconHeight = 30,
+    iconAnchorX = 0, iconAnchorY = 0)
+
+short.route <- matrix(c(-73.273977, 40.770891, 
+                        -73.274192, 40.770866, 
+                        -73.274728, 40.773036, 
+                        -73.275919, 40.772759), 
+                      ncol=2, 
+                      byrow=TRUE)
+
+long.route <- matrix(c(-73.273977, 40.770891, 
+                       -73.274192, 40.770866, 
+                       -73.273634, 40.768798, 
+                       -73.274675, 40.768644, 
+                       -73.275780, 40.772796, 
+                       -73.275919, 40.772759), 
+                     ncol=2, 
+                     byrow=TRUE)
+
+m <- leaflet() %>% setView(lng = -73.274774, lat = 40.771, zoom = 15)
+m %>% addProviderTiles("CartoDB.Positron") %>% 
+    addMarkers(data = road.signs, 
+               lat = ~lat, 
+               lng = ~lng, 
+               icon = road.icons, 
+               popup = ~label) %>% 
+    addPolylines(data = short.route, 
+                weight = 7, 
+                fillColor = 'transparent',
+                color = '#1b9e77', 
+                popup = "Short route: 0.2 miles") %>% 
+    addPolylines(data = long.route, 
+                 weight = 7, 
+                 fillColor = 'transparent',
+                 color = '#d95f02', 
+                 popup = "Long route: 0.5 miles")
+
+# Add attribution for icons
+# Stop sign and traffic light icons by Jonathan Li from the Noun Project
+# with links to each icon and the Noun Project
+```
+
+<sup><a href="https://thenounproject.com/term/stop-sign/51713/">Stop sign</a> and <a href="https://thenounproject.com/term/traffic-light/53685/">traffic light</a> icons by Jonathan Li from <a href="http://thenounproject.com">the Noun Project</a>.</sup>
+
+### Hypothesis
+
+My hypothesis is that the longer (distance) trip is longer (time) on average, but more predictable, and so maybe not even all that much longer. Hence, taking the low-stress route is not as costly as I might imagine.
+
+### The experiment
+
+So, taking this problem and having recently learned that [real scientists make their own data](http://seanjtaylor.com/post/41463778912/real-scientists-make-their-own-data), I decided to conduct some randomized trials on my daily commute. I randomly selected a route each time I left the office and recorded the time it took to complete that route.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+
+df <- read.csv('data//ab_route_data.txt', sep = "|", stringsAsFactors=F) %>%
+    mutate(timestamp = parse_date_time(timestamp, 
+                                       "%m %d, %y, %I:%M %p", 
+                                       locale = Sys.getlocale("LC_TIME"), 
+                                       tz = Sys.timezone()), 
+           route = as.factor(route))
+levels(df$route) <- c("long", "short")
+```
+
+Over the course of five months I recorded 53 trials. Here's a summary of the results from those trials:
+
+```{r echo=FALSE, warning=FALSE} 
+df %>% 
+    group_by(route) %>% 
+    summarize(n = n(), 
+              median.time = median(time), 
+              st.dev = sd(time))
+```
+
+```{r echo=FALSE, fig.height=5, fig.width=5}
+qplot(route, time, data=df, geom="boxplot", ylab="time (s)")
+```
+
+### Takeaways
+
+- The median time difference is 34 seconds. 
+- There is, indeed, greater volatility in times for te short route.
+- Even with volatility half the time the short route is faster than even the fastest trip on the long route.
+- However, by far the worst time was associated with the long route.
+
+For me, it's a pretty simple tradeoff. Avoiding the angst of that intimidating turn is worth 34 seconds per trip. I think that's what I'll start doing.
+
+I realize that the amount of time I spent building the data recorder, conducting analysis and writing this post blows away many times the time differences we're talking about here, but this is about trying new things. Hopefully someone out there can do something truly meaningful with tools like these.
+
+### How I recorded the data
+
+Using [Pythonista](http://omz-software.com/pythonista/) and [Workflow](https://workflow.is/), the app randomly selects a route each day and presents a stopwatch which I start at the fork and stop at the finish. This is automatically appended to an [Evernote](http://www.evernote.com/) note. Whatever I could document about the code is available [on GitHub](https://gist.github.com/wimsy/bfaf960e35de9eacb721). The analysis can be found in a [large repository](https://github.com/wimsy/mileage_analysis) I used for other driving-related analysis and posts.
